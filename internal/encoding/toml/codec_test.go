@@ -1,0 +1,69 @@
+package toml
+
+import (
+	"reflect"
+	"testing"
+)
+
+// encoded form of the data
+const encoded = `key = "value"
+list = ["item1", "item2"]
+
+[map]
+  key = "value"
+`
+
+// Viper's internal representation
+var data = map[string]interface{}{
+	"key": "value",
+	"list": []interface{}{
+		"item1",
+		"item2",
+	},
+	"map": map[string]interface{}{
+		"key": "value",
+	},
+}
+
+func TestCodec_Encode(t *testing.T) {
+	codec := Codec{}
+
+	b, err := codec.Encode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if encoded != string(b) {
+		t.Fatalf("decoded value does not match the expected one\nactual:   %#v\nexpected: %#v", string(b), encoded)
+	}
+}
+
+func TestCodec_Decode(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		codec := Codec{}
+
+		v := map[string]interface{}{}
+
+		err := codec.Decode([]byte(encoded), v)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !reflect.DeepEqual(data, v) {
+			t.Fatalf("decoded value does not match the expected one\nactual:   %#v\nexpected: %#v", v, data)
+		}
+	})
+
+	t.Run("InvalidData", func(t *testing.T) {
+		codec := Codec{}
+
+		v := map[string]interface{}{}
+
+		err := codec.Decode([]byte(`invalid data`), v)
+		if err == nil {
+			t.Fatal("expected decoding to fail")
+		}
+
+		t.Logf("decoding failed as expected: %s", err)
+	})
+}
