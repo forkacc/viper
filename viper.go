@@ -68,44 +68,8 @@ type RemoteResponse struct {
 	Error error
 }
 
-var (
-	encoderRegistry = encoding.NewEncoderRegistry()
-	decoderRegistry = encoding.NewDecoderRegistry()
-)
-
 func init() {
 	v = New()
-
-	{
-		codec := yaml.Codec{}
-
-		encoderRegistry.RegisterEncoder("yaml", codec)
-		decoderRegistry.RegisterDecoder("yaml", codec)
-
-		encoderRegistry.RegisterEncoder("yml", codec)
-		decoderRegistry.RegisterDecoder("yml", codec)
-	}
-
-	{
-		codec := json.Codec{}
-
-		encoderRegistry.RegisterEncoder("json", codec)
-		decoderRegistry.RegisterDecoder("json", codec)
-	}
-
-	{
-		codec := toml.Codec{}
-
-		encoderRegistry.RegisterEncoder("toml", codec)
-		decoderRegistry.RegisterDecoder("toml", codec)
-	}
-
-	{
-		codec := hcl.Codec{}
-
-		encoderRegistry.RegisterEncoder("hcl", codec)
-		decoderRegistry.RegisterDecoder("hcl", codec)
-	}
 }
 
 type remoteConfigFactory interface {
@@ -257,6 +221,10 @@ type Viper struct {
 	properties *properties.Properties
 
 	onConfigChange func(fsnotify.Event)
+
+	// TODO: should probably be protected with a mutex
+	encoderRegistry *encoding.EncoderRegistry
+	decoderRegistry *encoding.DecoderRegistry
 }
 
 // New returns an initialized Viper instance.
@@ -274,6 +242,8 @@ func New() *Viper {
 	v.env = make(map[string][]string)
 	v.aliases = make(map[string]string)
 	v.typeByDefValue = false
+
+	v.resetEncoding()
 
 	return v
 }
@@ -321,6 +291,8 @@ func NewWithOptions(opts ...Option) *Viper {
 		opt.apply(v)
 	}
 
+	v.resetEncoding()
+
 	return v
 }
 
@@ -331,6 +303,46 @@ func Reset() {
 	v = New()
 	SupportedExts = []string{"json", "toml", "yaml", "yml", "properties", "props", "prop", "hcl", "dotenv", "env", "ini"}
 	SupportedRemoteProviders = []string{"etcd", "consul", "firestore"}
+}
+
+// TODO: make this lazy initialization instead
+func (v *Viper) resetEncoding() {
+	encoderRegistry := encoding.NewEncoderRegistry()
+	decoderRegistry := encoding.NewDecoderRegistry()
+
+	{
+		codec := yaml.Codec{}
+
+		encoderRegistry.RegisterEncoder("yaml", codec)
+		decoderRegistry.RegisterDecoder("yaml", codec)
+
+		encoderRegistry.RegisterEncoder("yml", codec)
+		decoderRegistry.RegisterDecoder("yml", codec)
+	}
+
+	{
+		codec := json.Codec{}
+
+		encoderRegistry.RegisterEncoder("json", codec)
+		decoderRegistry.RegisterDecoder("json", codec)
+	}
+
+	{
+		codec := toml.Codec{}
+
+		encoderRegistry.RegisterEncoder("toml", codec)
+		decoderRegistry.RegisterDecoder("toml", codec)
+	}
+
+	{
+		codec := hcl.Codec{}
+
+		encoderRegistry.RegisterEncoder("hcl", codec)
+		decoderRegistry.RegisterDecoder("hcl", codec)
+	}
+
+	v.encoderRegistry = encoderRegistry
+	v.decoderRegistry = decoderRegistry
 }
 
 type defaultRemoteProvider struct {
@@ -1623,7 +1635,7 @@ func (v *Viper) unmarshalReader(in io.Reader, c map[string]interface{}) error {
 
 	switch format := strings.ToLower(v.getConfigType()); format {
 	case "yaml", "yml", "json", "toml", "hcl":
-		err := decoderRegistry.Decode(format, buf.Bytes(), c)
+		err := v.decoderRegistry.Decode(format, buf.Bytes(), c)
 		if err != nil {
 			return ConfigParseError{err}
 		}
@@ -1680,7 +1692,7 @@ func (v *Viper) marshalWriter(f afero.File, configType string) error {
 	c := v.AllSettings()
 	switch configType {
 	case "yaml", "yml", "json", "toml", "hcl":
-		b, err := encoderRegistry.Encode(configType, c)
+		b, err := v.encoderRegistry.Encode(configType, c)
 		if err != nil {
 			return ConfigMarshalError{err}
 		}
